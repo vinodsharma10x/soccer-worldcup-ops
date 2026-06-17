@@ -28,16 +28,46 @@ const contentTypes = {
 
 const cache = new Map();
 
+const securityHeaders = {
+  "content-security-policy": [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "base-uri 'self'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "upgrade-insecure-requests"
+  ].join("; "),
+  "cross-origin-opener-policy": "same-origin",
+  "permissions-policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY"
+};
+
+function withSecurityHeaders(headers = {}) {
+  return { ...headers, ...securityHeaders };
+}
+
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
-    const request = https.get(url, {
-      rejectUnauthorized: false,
+    const requestOptions = {
       headers: {
         accept: "application/json",
         "user-agent": "ops-signal-dashboard/1.0"
       },
       timeout: 10_000
-    }, (response) => {
+    };
+
+    if (process.env.ALLOW_INSECURE_LOCAL_FETCH === "1") {
+      requestOptions.rejectUnauthorized = false;
+    }
+
+    const request = https.get(url, requestOptions, (response) => {
       let body = "";
       response.setEncoding("utf8");
       response.on("data", (chunk) => {
@@ -112,14 +142,19 @@ function parseEventId(value) {
   return /^\d+$/.test(value || "") ? value : "";
 }
 
-function json(res, statusCode, body) {
+function json(res, statusCode, body, method = "GET", headers = {}) {
   const payload = JSON.stringify(body);
-  res.writeHead(statusCode, {
+  res.writeHead(statusCode, withSecurityHeaders({
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
-    "content-length": Buffer.byteLength(payload)
-  });
-  res.end(payload);
+    "content-length": Buffer.byteLength(payload),
+    ...headers
+  }));
+  res.end(method === "HEAD" ? undefined : payload);
+}
+
+function methodNotAllowed(res, method) {
+  json(res, 405, { error: "Method not allowed" }, method, { allow: "GET, HEAD" });
 }
 
 function numeric(value, fallback = 0) {
@@ -556,52 +591,66 @@ async function commentaryPayload(leagueSlug, eventId) {
 }
 
 async function handleApi(req, res, url) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    methodNotAllowed(res, req.method);
+    return;
+  }
+
   if (url.pathname === "/api/scores") {
     const offset = parseOffset(url.searchParams.get("offset"));
     const dateKeys = parseDateKeys(url.searchParams.get("date"), offset);
 
     try {
-      json(res, 200, await scoresPayload(dateKeys));
+      json(res, 200, await scoresPayload(dateKeys), req.method);
     } catch (error) {
-      json(res, 502, { error: error.message });
+      json(res, 502, { error: error.message }, req.method);
     }
     return;
   }
 
   if (url.pathname === "/api/commentary") {
     try {
-      json(res, 200, await commentaryPayload(url.searchParams.get("league"), url.searchParams.get("event")));
+      json(res, 200, await commentaryPayload(url.searchParams.get("league"), url.searchParams.get("event")), req.method);
     } catch (error) {
-      json(res, 502, { error: error.message });
+      json(res, 502, { error: error.message }, req.method);
     }
     return;
   }
 
-  json(res, 404, { error: "Unknown API route" });
+  json(res, 404, { error: "Unknown API route" }, req.method);
 }
 
 function serveStatic(req, res, url) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    methodNotAllowed(res, req.method);
+    return;
+  }
+
   const requested = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
   const filePath = path.normalize(path.join(PUBLIC_DIR, requested));
 
   if (!filePath.startsWith(PUBLIC_DIR)) {
-    res.writeHead(403);
+    res.writeHead(403, withSecurityHeaders());
     res.end("Forbidden");
     return;
   }
 
   fs.stat(filePath, (statError, stat) => {
     if (statError || !stat.isFile()) {
-      res.writeHead(404);
+      res.writeHead(404, withSecurityHeaders());
       res.end("Not found");
       return;
     }
 
     const ext = path.extname(filePath);
-    res.writeHead(200, {
+    res.writeHead(200, withSecurityHeaders({
       "content-type": contentTypes[ext] || "application/octet-stream",
-      "cache-control": "no-cache"
-    });
+      "cache-control": ext === ".html" ? "no-cache" : "public, max-age=60"
+    }));
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
     fs.createReadStream(filePath).pipe(res);
   });
 }

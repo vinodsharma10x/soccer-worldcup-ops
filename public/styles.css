@@ -386,6 +386,7 @@ body.reveal-mode .mode-toggle {
   padding: 0;
   color: var(--muted);
   cursor: pointer;
+  text-decoration: none;
 }
 
 .icon-button svg {
@@ -400,6 +401,17 @@ body.reveal-mode .mode-toggle {
 
 .icon-button.is-syncing svg {
   animation: spin 780ms linear infinite;
+}
+
+.repo-button svg {
+  fill: currentColor;
+  stroke: none;
+}
+
+.repo-button:hover,
+.icon-button:hover {
+  border-color: var(--line-3);
+  color: var(--text);
 }
 
 .avatar {

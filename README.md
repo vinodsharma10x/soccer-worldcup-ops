@@ -4,6 +4,10 @@ A professional operations-style dashboard that displays live soccer schedule and
 
 The default view masks teams as services like `esp-svc`, `arg-svc`, and `fra-svc`, so it looks like a delivery/observability dashboard. A reveal toggle switches the labels back to match-day language.
 
+Live site: [https://swc.careerleap.app/](https://swc.careerleap.app/)
+
+GitHub: [vinodsharma10x/soccer-worldcup-ops](https://github.com/vinodsharma10x/soccer-worldcup-ops)
+
 ## Features
 
 - Pulls World Cup match data from ESPN public scoreboard endpoints
@@ -26,6 +30,12 @@ Use another port if needed:
 
 ```bash
 PORT=4190 npm start
+```
+
+If your local Node trust store rejects the ESPN certificate chain, use the local-only bypass:
+
+```bash
+ALLOW_INSECURE_LOCAL_FETCH=1 npm start
 ```
 
 ## Build

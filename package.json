@@ -4,6 +4,11 @@
   "private": false,
   "description": "Local operations-style dashboard backed by live soccer result feeds.",
   "license": "MIT",
+  "homepage": "https://swc.careerleap.app/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vinodsharma10x/soccer-worldcup-ops.git"
+  },
   "scripts": {
     "build": "node scripts/build-site.mjs",
     "start": "node server.js"

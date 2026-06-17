@@ -20,6 +20,34 @@ const contentTypes = {
 
 const cache = new Map();
 
+const securityHeaders = {
+  "content-security-policy": [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "base-uri 'self'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "upgrade-insecure-requests"
+  ].join("; "),
+  "cross-origin-opener-policy": "same-origin",
+  "permissions-policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY"
+};
+
+function applySecurityHeaders(headers) {
+  for (const [key, value] of Object.entries(securityHeaders)) {
+    headers.set(key, value);
+  }
+  return headers;
+}
+
 async function fetchJson(url) {
   const response = await fetch(url, {
     headers: {
@@ -83,13 +111,28 @@ function parseEventId(value) {
   return /^\d+$/.test(value || "") ? value : "";
 }
 
-function json(body, statusCode = 200) {
-  return new Response(JSON.stringify(body), {
+function json(body, statusCode = 200, method = "GET") {
+  const payload = JSON.stringify(body);
+  return new Response(method === "HEAD" ? null : payload, {
     status: statusCode,
-    headers: {
+    headers: applySecurityHeaders(new Headers({
       "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store"
-    }
+      "cache-control": "no-store",
+      "content-length": String(new TextEncoder().encode(payload).length)
+    }))
+  });
+}
+
+function methodNotAllowed(method) {
+  const payload = JSON.stringify({ error: "Method not allowed" });
+  return new Response(method === "HEAD" ? null : payload, {
+    status: 405,
+    headers: applySecurityHeaders(new Headers({
+      allow: "GET, HEAD",
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "content-length": String(new TextEncoder().encode(payload).length)
+    }))
   });
 }
 
@@ -408,39 +451,53 @@ async function commentaryPayload(leagueSlug, eventId) {
   return payload;
 }
 
-async function handleApi(url) {
+async function handleApi(request, url) {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return methodNotAllowed(request.method);
+  }
+
   if (url.pathname === "/api/scores") {
     const offset = parseOffset(url.searchParams.get("offset"));
     const dateKeys = parseDateKeys(url.searchParams.get("date"), offset);
 
     try {
-      return json(await scoresPayload(dateKeys));
+      return json(await scoresPayload(dateKeys), 200, request.method);
     } catch (error) {
-      return json({ error: error.message }, 502);
+      return json({ error: error.message }, 502, request.method);
     }
   }
 
   if (url.pathname === "/api/commentary") {
     try {
-      return json(await commentaryPayload(url.searchParams.get("league"), url.searchParams.get("event")));
+      return json(await commentaryPayload(url.searchParams.get("league"), url.searchParams.get("event")), 200, request.method);
     } catch (error) {
-      return json({ error: error.message }, 502);
+      return json({ error: error.message }, 502, request.method);
     }
   }
 
-  return json({ error: "Unknown API route" }, 404);
+  return json({ error: "Unknown API route" }, 404, request.method);
 }
 
 async function serveStatic(request, env) {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return methodNotAllowed(request.method);
+  }
+
   if (!env?.ASSETS) {
-    return new Response("Static asset binding is unavailable.", { status: 500 });
+    return new Response("Static asset binding is unavailable.", {
+      status: 500,
+      headers: applySecurityHeaders(new Headers())
+    });
   }
 
   const url = new URL(request.url);
   const pathname = url.pathname === "/" ? "/index.html" : decodeURIComponent(url.pathname);
 
   if (pathname.includes("..")) {
-    return new Response("Forbidden", { status: 403 });
+    return new Response("Forbidden", {
+      status: 403,
+      headers: applySecurityHeaders(new Headers())
+    });
   }
 
   const assetUrl = new URL(pathname, request.url);
@@ -452,8 +509,9 @@ async function serveStatic(request, env) {
     headers.set("content-type", contentTypes[extension]);
   }
   headers.set("cache-control", extension === ".html" ? "no-cache" : "public, max-age=60");
+  applySecurityHeaders(headers);
 
-  return new Response(assetResponse.body, {
+  return new Response(request.method === "HEAD" ? null : assetResponse.body, {
     status: assetResponse.status,
     statusText: assetResponse.statusText,
     headers
@@ -465,7 +523,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith("/api/")) {
-      return handleApi(url);
+      return handleApi(request, url);
     }
 
     return serveStatic(request, env);
