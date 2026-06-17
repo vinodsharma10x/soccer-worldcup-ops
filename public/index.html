@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Continuum · Delivery Pipelines</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="left-nav" aria-label="Workspace navigation">
+        <div class="brand-lockup">
+          <span class="brand-mark">C</span>
+          <div>
+            <strong>Continuum</strong>
+            <small>delivery intelligence</small>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <span class="nav-section">Workspace</span>
+          <button type="button"><span class="nav-icon">▦</span>Overview</button>
+          <button class="active" type="button"><span class="nav-icon">⌁</span>Pipelines</button>
+          <button type="button"><span class="nav-icon">▤</span>Deployments</button>
+          <button type="button"><span class="nav-icon">△</span>Incidents</button>
+          <button type="button"><span class="nav-icon">↗</span>Metrics</button>
+          <span class="nav-section">Monitors</span>
+          <button type="button"><span class="nav-icon">◎</span>Alerts <em>3</em></button>
+          <button type="button"><span class="nav-icon">☷</span>Logs</button>
+          <button type="button"><span class="nav-icon">⚙</span>Settings</button>
+        </nav>
+
+        <div class="system-card">
+          <span class="live-dot"></span>
+          <div>
+            <strong>All systems operational</strong>
+            <small>uptime 99.98% · 90d</small>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main-shell">
+        <header class="topbar">
+          <div class="chip"><span></span>env: production</div>
+          <div class="chip muted" id="windowChip">today ET</div>
+          <div class="search-box">
+            <span>⌕</span>
+            <strong>filter pipelines...</strong>
+            <kbd>/</kbd>
+          </div>
+          <div class="topbar-actions">
+            <button class="mode-toggle" id="modeToggle" type="button" aria-label="Toggle reveal mode">
+              <span></span><strong id="modeLabel">Ops view</strong>
+            </button>
+            <div class="live-label"><span></span>LIVE</div>
+            <div class="sync-status" id="syncStatus">
+              <span class="sync-dot"></span>
+              <span>Sync pending</span>
+            </div>
+            <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh feed" title="Refresh feed">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 6v6h-6"></path>
+                <path d="M4 18v-6h6"></path>
+                <path d="M19 12a7 7 0 0 0-12-5l-3 3"></path>
+                <path d="M5 12a7 7 0 0 0 12 5l3-3"></path>
+              </svg>
+            </button>
+            <div class="avatar">OPS</div>
+          </div>
+        </header>
+
+        <section class="content">
+          <div class="hero-row">
+            <div>
+              <h1 id="headerTitle">Delivery Pipelines</h1>
+              <p id="headerSub">continuous delivery · live external telemetry</p>
+            </div>
+            <div class="date-controls">
+              <div class="segmented" role="group" aria-label="Date window">
+                <button type="button" data-offset="-1">Prior</button>
+                <button class="active" type="button" data-offset="0">Current</button>
+                <button type="button" data-offset="1">Next</button>
+              </div>
+              <div class="refresh-meter">
+                <span id="updatedLabel">updated 0s ago</span>
+                <i><b id="refreshBar"></b></i>
+              </div>
+            </div>
+          </div>
+
+          <section class="kpi-grid" aria-label="Pipeline KPIs">
+            <article class="kpi-card">
+              <div><span id="kpiOneLabel">Active pipelines</span><em id="kpiOneDelta">live</em></div>
+              <strong id="metricLive">0</strong>
+              <canvas id="sparkOne" width="190" height="46"></canvas>
+            </article>
+            <article class="kpi-card">
+              <div><span id="kpiTwoLabel">Runs · 24h</span><em>+3</em></div>
+              <strong id="metricTotal">0</strong>
+              <canvas id="sparkTwo" width="190" height="46"></canvas>
+            </article>
+            <article class="kpi-card">
+              <div><span id="kpiThreeLabel">Artifacts deployed</span><em id="artifactDelta">+0</em></div>
+              <strong id="metricArtifacts">0</strong>
+              <canvas id="sparkThree" width="190" height="46"></canvas>
+            </article>
+            <article class="kpi-card">
+              <div><span id="kpiFourLabel">Accuracy</span><em id="qualityDelta">on-target</em></div>
+              <strong><span id="metricSuccess">99.9</span><small>%</small></strong>
+              <canvas id="sparkFour" width="190" height="46"></canvas>
+            </article>
+            <article class="kpi-card">
+              <div><span id="kpiFiveLabel">Control</span><em id="latencyDelta">even</em></div>
+              <strong><span id="metricLatency">0</span><small id="metricFiveUnit">%</small></strong>
+              <canvas id="sparkFive" width="190" height="46"></canvas>
+            </article>
+          </section>
+
+          <section class="panel throughput-panel">
+            <div class="panel-header">
+              <div>
+                <h2 id="chartTitle">Pipeline throughput</h2>
+                <span id="chartUnit">req/s · external signal window</span>
+              </div>
+              <div class="legend">
+                <span><i class="purple"></i><b id="legendPrimary">runs</b></span>
+                <span><i class="cyan"></i><b id="legendSecondary">artifacts</b></span>
+              </div>
+            </div>
+            <canvas id="throughputCanvas" width="1120" height="260"></canvas>
+            <div class="chart-tooltip" id="chartTooltip" role="status"></div>
+            <div class="axis-labels"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:59 ET</span></div>
+          </section>
+
+          <div class="section-title-row">
+            <h2 id="liveTitle">Active Pipelines</h2>
+            <span id="liveRunningBadge">0 running</span>
+          </div>
+          <section class="active-grid" id="activeGrid" aria-label="Active pipelines"></section>
+
+          <section class="panel runs-panel">
+            <div class="table-header">
+              <h2 id="recentTitle">Recent Runs · 24h</h2>
+              <span id="recentMeta">0 completed</span>
+            </div>
+            <div class="table-grid table-head">
+              <span>status</span><span>pipeline</span><span>builds</span><span>cards</span><span>trend</span><span>duration</span><span>commit</span>
+            </div>
+            <div id="recentRuns"></div>
+          </section>
+
+          <section class="panel queued-panel">
+            <div class="table-header">
+              <h2 id="queuedTitle">Queued</h2>
+              <span>scheduled</span>
+            </div>
+            <div id="queuedRuns"></div>
+          </section>
+        </section>
+      </main>
+
+      <aside class="right-rail" aria-label="Live activity">
+        <section class="rail-panel notes-rail-panel">
+          <div class="rail-panel-header">
+            <h2 id="feedTitle">Live Activity</h2>
+            <span><i></i>streaming</span>
+          </div>
+          <div class="activity-list" id="activityFeed"></div>
+        </section>
+
+        <section class="rail-panel">
+          <div class="rail-panel-header">
+            <h2>Signal Notes</h2>
+            <span id="notesCount">0</span>
+          </div>
+          <div class="notes-list" id="notesList"></div>
+        </section>
+
+        <section class="regions-panel">
+          <h2>Regions</h2>
+          <div id="regionsList"></div>
+        </section>
+
+        <div class="oncall-card">
+          <span>PT</span>
+          <div>
+            <strong id="oncallLabel">On-call · P. Tierney</strong>
+            <small>escalation → VAR review</small>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
