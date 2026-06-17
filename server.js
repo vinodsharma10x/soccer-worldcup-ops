@@ -23,6 +23,8 @@ const contentTypes = {
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
   ".ico": "image/x-icon"
 };
 
@@ -51,6 +53,10 @@ const securityHeaders = {
 
 function withSecurityHeaders(headers = {}) {
   return { ...headers, ...securityHeaders };
+}
+
+function cacheControlForExtension(ext) {
+  return [".html", ".css", ".js"].includes(ext) ? "no-cache" : "public, max-age=60";
 }
 
 function fetchJson(url) {
@@ -645,7 +651,7 @@ function serveStatic(req, res, url) {
     const ext = path.extname(filePath);
     res.writeHead(200, withSecurityHeaders({
       "content-type": contentTypes[ext] || "application/octet-stream",
-      "cache-control": ext === ".html" ? "no-cache" : "public, max-age=60"
+      "cache-control": cacheControlForExtension(ext)
     }));
     if (req.method === "HEAD") {
       res.end();

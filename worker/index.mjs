@@ -48,6 +48,10 @@ function applySecurityHeaders(headers) {
   return headers;
 }
 
+function cacheControlForExtension(extension) {
+  return [".html", ".css", ".js"].includes(extension) ? "no-cache" : "public, max-age=60";
+}
+
 async function fetchJson(url) {
   const response = await fetch(url, {
     headers: {
@@ -508,7 +512,7 @@ async function serveStatic(request, env) {
   if (!headers.has("content-type") && contentTypes[extension]) {
     headers.set("content-type", contentTypes[extension]);
   }
-  headers.set("cache-control", extension === ".html" ? "no-cache" : "public, max-age=60");
+  headers.set("cache-control", cacheControlForExtension(extension));
   applySecurityHeaders(headers);
 
   return new Response(request.method === "HEAD" ? null : assetResponse.body, {

@@ -521,11 +521,10 @@ function drawSpark(canvas, seed, color) {
 }
 
 function eventWindowModel(event) {
-  const start = minuteOfDayInEastern(event.timestamp);
-  const duration = event.state === "queued" ? 100 : 110;
+  const start = 0;
+  const end = 100;
   const progress = event.state === "closed" ? 100 : event.state === "queued" ? 0 : minuteValue(event);
-  const end = Math.min(1439, start + duration);
-  const activeEnd = start + ((end - start) * progress) / 100;
+  const activeEnd = progress;
   const quality = signalQuality([event]);
   const control = loadSkew([event]);
   const cards = cardTotals(event);
@@ -598,7 +597,7 @@ function drawThroughput(events) {
   const laneCount = Math.max(1, sorted.length);
   const laneHeight = Math.max(30, Math.min(42, (height - top - bottom) / laneCount));
   const barHeight = Math.max(8, Math.min(12, laneHeight * 0.3));
-  const x = (minute) => left + (Math.max(0, Math.min(1439, minute)) / 1439) * plotWidth;
+  const x = (percent) => left + (Math.max(0, Math.min(100, percent)) / 100) * plotWidth;
   const statusColor = (event) => event.state === "closed" ? "#3fb950" : event.state === "live" ? "#8b5cf6" : "#d29922";
   const laneModels = [];
 
@@ -609,16 +608,20 @@ function drawThroughput(events) {
   context.font = "10px IBM Plex Mono, monospace";
   context.strokeStyle = "#1b2330";
   context.lineWidth = 1;
-  [0, 6, 12, 18, 24].forEach((hour) => {
-    const xx = x(hour * 60);
+  [
+    { position: 0, label: "0 min" },
+    { position: 33.333, label: "30 min" },
+    { position: 50, label: "HT 45" },
+    { position: 66.667, label: "60 min" },
+    { position: 100, label: "90+ min" }
+  ].forEach((tick) => {
+    const xx = x(tick.position);
     context.beginPath();
     context.moveTo(xx, 8);
     context.lineTo(xx, height - bottom + 4);
     context.stroke();
-    if (hour < 24) {
-      context.fillStyle = "#586174";
-      context.fillText(`${String(hour).padStart(2, "0")}:00`, xx + 4, height - 8);
-    }
+    context.fillStyle = "#586174";
+    context.fillText(tick.label, Math.min(xx + 4, width - right - 48), height - 8);
   });
 
   sorted.forEach((event, index) => {
@@ -665,7 +668,7 @@ function drawThroughput(events) {
     }
 
     for (const item of event.outputEvents || []) {
-      const markerX = x(model.start + ((model.end - model.start) * outputEventPosition(item)) / 100);
+      const markerX = x(outputEventPosition(item));
       context.fillStyle = "#f7c948";
       context.strokeStyle = "#0f1520";
       context.lineWidth = 2;
@@ -676,7 +679,7 @@ function drawThroughput(events) {
     }
 
     for (const item of event.cards?.details || []) {
-      const markerX = x(model.start + ((model.end - model.start) * outputEventPosition({ time: item.time })) / 100);
+      const markerX = x(outputEventPosition({ time: item.time }));
       context.fillStyle = item.type === "red" ? "#f85149" : "#f7c948";
       context.fillRect(markerX - 3, barY + barHeight + 5, 6, 9);
     }
@@ -894,8 +897,8 @@ function renderHeader() {
     ? `${day} · live scores · finished · upcoming · ${stamp}`
     : `${day} · ${events.length} tracked services · ${stamp}`;
   elements.modeLabel.textContent = state.reveal ? "Match view" : "Ops view";
-  elements.chartTitle.textContent = state.reveal ? "Match operations map · today ET" : "Service window map · today ET";
-  elements.chartUnit.textContent = state.reveal ? "status lanes · goals · cards · pressure stats" : "service lanes · outputs · flags · telemetry";
+  elements.chartTitle.textContent = state.reveal ? "Match operations map · today ET" : "Service runtime map · today ET";
+  elements.chartUnit.textContent = state.reveal ? "90-minute lanes · goals · cards · pressure stats" : "90-minute lanes · outputs · flags · telemetry";
   elements.legendPrimary.textContent = state.reveal ? "active window" : "service window";
   elements.legendSecondary.textContent = state.reveal ? "goals/flags" : "outputs/flags";
   elements.liveTitle.textContent = state.reveal ? "Today's Matches" : "Today's Pipelines";
@@ -1084,8 +1087,7 @@ async function loadScores() {
     loadCommentary();
     const time = new Intl.DateTimeFormat("en-US", {
       hour: "numeric",
-      minute: "2-digit",
-      second: "2-digit"
+      minute: "2-digit"
     }).format(new Date(state.payload.generatedAt));
     setSyncStatus("online", `Synced ${time}`);
   } catch (error) {
