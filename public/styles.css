@@ -1358,7 +1358,7 @@ h1 {
 
 .right-rail {
   display: grid;
-  grid-template-rows: minmax(220px, 1fr) minmax(180px, 0.75fr) minmax(190px, 0.7fr) auto auto;
+  grid-template-rows: minmax(190px, 0.7fr) minmax(180px, 0.75fr) minmax(220px, 1fr) auto auto;
   min-width: 0;
   border-left: 1px solid var(--line);
   overflow: hidden;
@@ -1469,20 +1469,6 @@ h1 {
   color: var(--text);
   font: 700 11.5px/1 "IBM Plex Mono", monospace;
   font-style: normal;
-}
-
-.forecast-credit {
-  display: block;
-  margin: 2px 10px 10px;
-  padding: 8px;
-  border-top: 1px solid #161d28;
-  color: var(--muted);
-  font: 10.5px/1.2 "IBM Plex Mono", monospace;
-  text-decoration: none;
-}
-
-.forecast-credit:hover {
-  color: #c4b5fd;
 }
 
 .activity-item {

@@ -71,6 +71,7 @@ const teamColors = [
   "#f0883e", "#3fb38a", "#5d8bf0", "#3fb950", "#5aa9e6", "#2dd4bf"
 ];
 const DISPLAY_TIME_ZONE = "America/New_York";
+const FORECAST_CREDIT = "Credits: Ameya Patil";
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -252,7 +253,7 @@ function forecastBar(event) {
   const unitA = Math.max(0, Math.round((prediction.unitAWin || 0) * 100));
 
   return `
-    <div class="forecast-bar" title="${escapeHtml(predictionSummary(event))}">
+    <div class="forecast-bar" title="${FORECAST_CREDIT}">
       <i class="forecast-home" style="width:${unitB}%"></i>
       <i class="forecast-draw" style="width:${draw}%"></i>
       <i class="forecast-away" style="width:${unitA}%"></i>
@@ -271,7 +272,7 @@ function forecastStrip(event, compact = false) {
   return `
     <div class="forecast-strip ${compact ? "compact" : ""} ${statusClass}">
       <div class="forecast-head">
-        <span>${state.reveal ? "prediction" : "forecast"}</span>
+        <span title="${FORECAST_CREDIT}">forecast</span>
         <strong>${escapeHtml(predictionSummary(event))}</strong>
         <small>xG ${escapeHtml(unitB)} ${predictionXg(prediction.unitBXg)} · ${escapeHtml(unitA)} ${predictionXg(prediction.unitAXg)}</small>
       </div>
@@ -292,7 +293,7 @@ function forecastDetailChip(event) {
   const hitLabel = prediction.modelHit === true ? "hit" : prediction.modelHit === false ? "miss" : "pending";
   return `
     <span class="detail-chip forecast-detail-chip ${predictionStatusClass(prediction)}">
-      <b>${state.reveal ? "prediction" : "forecast"}</b>${escapeHtml(predictionSummary(event))}
+      <b title="${FORECAST_CREDIT}">forecast</b>${escapeHtml(predictionSummary(event))}
       ${prediction.modelHit === null ? "" : `<em>${hitLabel}</em>`}
     </span>
   `;
@@ -304,7 +305,7 @@ function forecastTooltipRow(event) {
   const unitB = predictionSideName(event, "unitB");
   const unitA = predictionSideName(event, "unitA");
   return `
-    <li><strong>${state.reveal ? "odds" : "forecast"}</strong><span>${escapeHtml(predictionSummary(event))}</span><em>xG ${escapeHtml(unitB)} ${predictionXg(prediction.unitBXg)} · ${escapeHtml(unitA)} ${predictionXg(prediction.unitAXg)}</em></li>
+    <li><strong title="${FORECAST_CREDIT}">forecast</strong><span>${escapeHtml(predictionSummary(event))}</span><em>xG ${escapeHtml(unitB)} ${predictionXg(prediction.unitBXg)} · ${escapeHtml(unitA)} ${predictionXg(prediction.unitAXg)}</em></li>
   `;
 }
 
@@ -1103,7 +1104,8 @@ function renderForecastLeaders() {
   if (!elements.forecastList) return;
   const predictionMeta = state.payload?.predictions || {};
   const rows = predictionMeta.tournamentLeaders || [];
-  elements.forecastTitle.textContent = state.reveal ? "Tournament Odds" : "Forecast Leaders";
+  elements.forecastTitle.textContent = "Forecast";
+  elements.forecastTitle.title = FORECAST_CREDIT;
   elements.forecastMeta.textContent = predictionMeta.sources?.tournament || "model";
   elements.forecastList.innerHTML = rows.length
     ? rows.slice(0, 6).map(forecastLeaderItem).join("")
