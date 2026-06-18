@@ -8,7 +8,9 @@ const PORT = Number(process.env.PORT || 4187);
 const CACHE_MS = 35_000;
 const COMMENTARY_CACHE_MS = 25_000;
 const SUMMARY_CACHE_MS = 45_000;
+const PREDICTION_CACHE_MS = 60_000;
 const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer";
+const PREDICTION_RAW_BASE = "https://raw.githubusercontent.com/AmeyaPatil1989/fifa-2026-predictor/main";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DISPLAY_TIME_ZONE = "America/New_York";
 
@@ -21,6 +23,7 @@ const contentTypes = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".csv": "text/csv; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".jpeg": "image/jpeg",
@@ -29,6 +32,27 @@ const contentTypes = {
 };
 
 const cache = new Map();
+
+const predictionFiles = {
+  matches: {
+    remote: `${PREDICTION_RAW_BASE}/output/match_predictions.csv`,
+    local: path.join(PUBLIC_DIR, "data", "predictions", "match_predictions.csv")
+  },
+  tournament: {
+    remote: `${PREDICTION_RAW_BASE}/output/tournament_probabilities.csv`,
+    local: path.join(PUBLIC_DIR, "data", "predictions", "tournament_probabilities.csv")
+  },
+  standings: {
+    remote: `${PREDICTION_RAW_BASE}/output/group_standings.csv`,
+    local: path.join(PUBLIC_DIR, "data", "predictions", "group_standings.csv")
+  },
+  scorers: {
+    remote: `${PREDICTION_RAW_BASE}/output/wc2026_scorers.csv`,
+    local: path.join(PUBLIC_DIR, "data", "predictions", "wc2026_scorers.csv")
+  }
+};
+
+const teamAliases = new Map();
 
 const securityHeaders = {
   "content-security-policy": [
@@ -98,6 +122,315 @@ function fetchJson(url) {
     });
     request.on("error", reject);
   });
+}
+
+function fetchText(url) {
+  return new Promise((resolve, reject) => {
+    const requestOptions = {
+      headers: {
+        accept: "text/csv,text/plain,*/*",
+        "user-agent": "soccer-worldcup-ops/1.0"
+      },
+      timeout: 6_000
+    };
+
+    if (process.env.ALLOW_INSECURE_LOCAL_FETCH === "1") {
+      requestOptions.rejectUnauthorized = false;
+    }
+
+    const request = https.get(url, requestOptions, (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => {
+        body += chunk;
+      });
+      response.on("end", () => {
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          reject(new Error(`${url} returned ${response.statusCode}`));
+          return;
+        }
+        resolve(body);
+      });
+    });
+
+    request.on("timeout", () => {
+      request.destroy(new Error(`Timeout fetching ${url}`));
+    });
+    request.on("error", reject);
+  });
+}
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let value = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < String(text || "").length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (char === "\"") {
+      if (inQuotes && next === "\"") {
+        value += "\"";
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      row.push(value);
+      value = "";
+    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(value);
+      if (row.some((item) => item !== "")) rows.push(row);
+      row = [];
+      value = "";
+    } else {
+      value += char;
+    }
+  }
+
+  row.push(value);
+  if (row.some((item) => item !== "")) rows.push(row);
+  if (rows.length < 2) return [];
+
+  const headers = rows[0].map((item) => item.trim());
+  return rows.slice(1).map((items) => Object.fromEntries(headers.map((header, index) => [header, items[index] ?? ""])));
+}
+
+function nameKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+[
+  ["USA", "United States"],
+  ["United States of America", "United States"],
+  ["USMNT", "United States"],
+  ["Korea Republic", "South Korea"],
+  ["Republic of Korea", "South Korea"],
+  ["Cote d Ivoire", "Ivory Coast"],
+  ["Côte d'Ivoire", "Ivory Coast"],
+  ["Democratic Republic of the Congo", "DR Congo"],
+  ["Congo DR", "DR Congo"],
+  ["DRC", "DR Congo"],
+  ["Curacao", "Curaçao"],
+  ["Curaçao", "Curaçao"],
+  ["Cape Verde Islands", "Cape Verde"],
+  ["Cabo Verde", "Cape Verde"],
+  ["Czechia", "Czech Republic"],
+  ["Türkiye", "Turkey"],
+  ["Bosnia-Herzegovina", "Bosnia and Herzegovina"],
+  ["IR Iran", "Iran"]
+].forEach(([alias, canonical]) => {
+  teamAliases.set(nameKey(alias), nameKey(canonical));
+});
+
+function teamKey(value) {
+  const key = nameKey(value);
+  return teamAliases.get(key) || key;
+}
+
+function dateKeyFromPredictionDate(value) {
+  const raw = String(value || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw.replaceAll("-", "") : "";
+}
+
+function numberOrNull(value) {
+  if (String(value ?? "").trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function booleanText(value) {
+  return /^true$/i.test(String(value || "").trim());
+}
+
+async function loadPredictionCsv(kind) {
+  const spec = predictionFiles[kind];
+  const cacheKey = `prediction-csv:${kind}`;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < PREDICTION_CACHE_MS) return cached.payload;
+
+  let text = "";
+  let source = "raw-github";
+  let error = "";
+
+  try {
+    text = await fetchText(spec.remote);
+  } catch (remoteError) {
+    error = remoteError.message;
+    source = "bundled";
+    text = await fs.promises.readFile(spec.local, "utf8");
+  }
+
+  const payload = {
+    kind,
+    source,
+    error,
+    fetchedAt: new Date().toISOString(),
+    rows: parseCsv(text)
+  };
+  cache.set(cacheKey, { createdAt: Date.now(), payload });
+  return payload;
+}
+
+function normalizePredictionRow(row) {
+  return {
+    date: row.date,
+    dateKey: dateKeyFromPredictionDate(row.date),
+    homeTeam: row.home_team,
+    awayTeam: row.away_team,
+    homeKey: teamKey(row.home_team),
+    awayKey: teamKey(row.away_team),
+    city: row.city,
+    country: row.country,
+    homeElo: numberOrNull(row.home_elo),
+    awayElo: numberOrNull(row.away_elo),
+    pHomeWin: numberOrNull(row.p_home_win),
+    pDraw: numberOrNull(row.p_draw),
+    pAwayWin: numberOrNull(row.p_away_win),
+    expHomeGoals: numberOrNull(row.exp_home_goals),
+    expAwayGoals: numberOrNull(row.exp_away_goals),
+    predictedResult: row.predicted_result || "",
+    completed: booleanText(row.completed),
+    actualHomeScore: numberOrNull(row.actual_home_score),
+    actualAwayScore: numberOrNull(row.actual_away_score),
+    actualResult: row.actual_result || ""
+  };
+}
+
+function normalizeTournamentRow(row) {
+  return {
+    team: row.team,
+    teamKey: teamKey(row.team),
+    group: row.group,
+    winProbability: numberOrNull(row.win_probability),
+    winPct: numberOrNull(row.win_pct),
+    simulatedWins: numberOrNull(row.simulated_wins),
+    elo: numberOrNull(row.elo),
+    rank: numberOrNull(row.rank)
+  };
+}
+
+async function predictionPayload() {
+  const cacheKey = "prediction-payload";
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < PREDICTION_CACHE_MS) return cached.payload;
+
+  const [matchesCsv, tournamentCsv, standingsCsv, scorersCsv] = await Promise.all([
+    loadPredictionCsv("matches"),
+    loadPredictionCsv("tournament"),
+    loadPredictionCsv("standings"),
+    loadPredictionCsv("scorers")
+  ]);
+  const matches = matchesCsv.rows.map(normalizePredictionRow);
+  const byMatchKey = new Map();
+  for (const match of matches) {
+    if (!match.dateKey || !match.homeKey || !match.awayKey) continue;
+    byMatchKey.set(`${match.dateKey}:${match.homeKey}:${match.awayKey}`, match);
+  }
+
+  const tournament = tournamentCsv.rows
+    .map(normalizeTournamentRow)
+    .filter((row) => row.team && Number.isFinite(row.winPct))
+    .sort((a, b) => (a.rank || 999) - (b.rank || 999));
+
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    attribution: "Prediction data from AmeyaPatil1989/fifa-2026-predictor",
+    sources: {
+      matches: matchesCsv.source,
+      tournament: tournamentCsv.source,
+      standings: standingsCsv.source,
+      scorers: scorersCsv.source
+    },
+    errors: [matchesCsv, tournamentCsv, standingsCsv, scorersCsv]
+      .filter((item) => item.error)
+      .map((item) => ({ kind: item.kind, message: item.error })),
+    matches,
+    byMatchKey,
+    tournamentLeaders: tournament.slice(0, 8),
+    standings: standingsCsv.rows,
+    scorers: scorersCsv.rows
+  };
+  cache.set(cacheKey, { createdAt: Date.now(), payload });
+  return payload;
+}
+
+function predictionSideLabel(result, reversed) {
+  if (result === "Draw") return "draw";
+  if (result === "Home Win") return reversed ? "unitA" : "unitB";
+  if (result === "Away Win") return reversed ? "unitB" : "unitA";
+  return "";
+}
+
+function predictionForEvent(event, predictions) {
+  const dateKey = event.sourceDateKey || dateKeyForInstant(event.timestamp);
+  const unitBKey = teamKey(event.unitB?.label || event.unitB?.code);
+  const unitAKey = teamKey(event.unitA?.label || event.unitA?.code);
+  const direct = predictions.byMatchKey.get(`${dateKey}:${unitBKey}:${unitAKey}`);
+  const reverse = predictions.byMatchKey.get(`${dateKey}:${unitAKey}:${unitBKey}`);
+  const row = direct || reverse;
+  if (!row) return null;
+
+  const reversed = Boolean(reverse && !direct);
+  const unitBWin = reversed ? row.pAwayWin : row.pHomeWin;
+  const unitAWin = reversed ? row.pHomeWin : row.pAwayWin;
+  const unitBXg = reversed ? row.expAwayGoals : row.expHomeGoals;
+  const unitAXg = reversed ? row.expHomeGoals : row.expAwayGoals;
+  const unitBElo = reversed ? row.awayElo : row.homeElo;
+  const unitAElo = reversed ? row.homeElo : row.awayElo;
+  const favorite = [
+    { side: "unitB", probability: unitBWin },
+    { side: "draw", probability: row.pDraw },
+    { side: "unitA", probability: unitAWin }
+  ].filter((item) => Number.isFinite(item.probability))
+    .sort((a, b) => b.probability - a.probability)[0] || { side: "", probability: null };
+  const predictedSide = predictionSideLabel(row.predictedResult, reversed);
+  const actualSide = predictionSideLabel(row.actualResult, reversed);
+
+  return {
+    provider: "AmeyaPatil1989/fifa-2026-predictor",
+    date: row.date,
+    sourceHomeTeam: row.homeTeam,
+    sourceAwayTeam: row.awayTeam,
+    sourceCity: row.city,
+    sourceCountry: row.country,
+    unitBWin,
+    draw: row.pDraw,
+    unitAWin,
+    unitBXg,
+    unitAXg,
+    unitBElo,
+    unitAElo,
+    favoriteSide: favorite.side,
+    favoriteProbability: favorite.probability,
+    predictedResult: row.predictedResult,
+    predictedSide,
+    actualResult: row.actualResult,
+    actualSide,
+    modelHit: row.actualResult && row.actualResult !== "Upcoming" ? row.predictedResult === row.actualResult : null,
+    completed: row.completed,
+    matchedReversed: reversed
+  };
+}
+
+function attachPredictions(events, predictions) {
+  let matched = 0;
+  const withPredictions = events.map((event) => {
+    const prediction = predictionForEvent(event, predictions);
+    if (prediction) matched += 1;
+    return prediction ? { ...event, prediction } : event;
+  });
+  return { events: withPredictions, matched };
 }
 
 function dateKeyFromParts(parts) {
@@ -542,6 +875,29 @@ async function scoresPayload(dateKeys) {
   events.splice(0, events.length, ...enriched);
   events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
+  let predictions = {
+    provider: "AmeyaPatil1989/fifa-2026-predictor",
+    matched: 0,
+    tournamentLeaders: [],
+    errors: []
+  };
+
+  try {
+    const predictionData = await predictionPayload();
+    const attached = attachPredictions(events, predictionData);
+    events.splice(0, events.length, ...attached.events);
+    predictions = {
+      provider: predictionData.attribution,
+      generatedAt: predictionData.generatedAt,
+      sources: predictionData.sources,
+      matched: attached.matched,
+      tournamentLeaders: predictionData.tournamentLeaders,
+      errors: predictionData.errors
+    };
+  } catch (error) {
+    predictions.errors = [{ kind: "provider", message: error.message }];
+  }
+
   const payload = {
     generatedAt: new Date().toISOString(),
     dateKey: dateKeys[Math.floor(dateKeys.length / 2)],
@@ -561,6 +917,7 @@ async function scoresPayload(dateKeys) {
       closed: events.filter((event) => event.state === "closed").length,
       signal: events.length ? Math.round(events.reduce((sum, event) => sum + event.signal, 0) / events.length) : 0
     },
+    predictions,
     events
   };
 

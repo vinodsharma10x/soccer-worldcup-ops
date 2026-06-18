@@ -59,6 +59,9 @@ const elements = {
   activityFeed: document.querySelector("#activityFeed"),
   notesCount: document.querySelector("#notesCount"),
   notesList: document.querySelector("#notesList"),
+  forecastTitle: document.querySelector("#forecastTitle"),
+  forecastMeta: document.querySelector("#forecastMeta"),
+  forecastList: document.querySelector("#forecastList"),
   regionsList: document.querySelector("#regionsList"),
   oncallLabel: document.querySelector("#oncallLabel")
 };
@@ -208,6 +211,100 @@ function cardBadges(event, compact = false) {
       <span class="flag-card red">R${totals.red}</span>
       <small>${escapeHtml(compact ? cardTimesText(event) : cardSummaryText(event))}</small>
     </div>
+  `;
+}
+
+function predictionPercent(value) {
+  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : "--";
+}
+
+function predictionXg(value) {
+  return Number.isFinite(value) ? value.toFixed(1) : "--";
+}
+
+function predictionSideName(event, side, options = {}) {
+  if (side === "draw") return state.reveal ? "Draw" : "hold";
+  if (side !== "unitA" && side !== "unitB") return "--";
+  const unit = side === "unitA" ? event?.unitA : event?.unitB;
+  if (state.reveal) return options.long ? unit?.label || unit?.code || "team" : unit?.code || unit?.label || "team";
+  return service(unit);
+}
+
+function predictionStatusClass(prediction) {
+  if (prediction?.modelHit === true) return "hit";
+  if (prediction?.modelHit === false) return "miss";
+  return "pending";
+}
+
+function predictionSummary(event) {
+  const prediction = event?.prediction;
+  if (!prediction) return "";
+  const favorite = predictionSideName(event, prediction.favoriteSide, { long: true });
+  const pct = predictionPercent(prediction.favoriteProbability);
+  return `${favorite} ${pct}`;
+}
+
+function forecastBar(event) {
+  const prediction = event?.prediction;
+  if (!prediction) return "";
+  const unitB = Math.max(0, Math.round((prediction.unitBWin || 0) * 100));
+  const draw = Math.max(0, Math.round((prediction.draw || 0) * 100));
+  const unitA = Math.max(0, Math.round((prediction.unitAWin || 0) * 100));
+
+  return `
+    <div class="forecast-bar" title="${escapeHtml(predictionSummary(event))}">
+      <i class="forecast-home" style="width:${unitB}%"></i>
+      <i class="forecast-draw" style="width:${draw}%"></i>
+      <i class="forecast-away" style="width:${unitA}%"></i>
+    </div>
+  `;
+}
+
+function forecastStrip(event, compact = false) {
+  const prediction = event?.prediction;
+  if (!prediction) return "";
+  const statusClass = predictionStatusClass(prediction);
+  const unitB = predictionSideName(event, "unitB");
+  const unitA = predictionSideName(event, "unitA");
+  const hitLabel = prediction.modelHit === true ? "hit" : prediction.modelHit === false ? "miss" : "pending";
+
+  return `
+    <div class="forecast-strip ${compact ? "compact" : ""} ${statusClass}">
+      <div class="forecast-head">
+        <span>${state.reveal ? "prediction" : "forecast"}</span>
+        <strong>${escapeHtml(predictionSummary(event))}</strong>
+        <small>xG ${escapeHtml(unitB)} ${predictionXg(prediction.unitBXg)} · ${escapeHtml(unitA)} ${predictionXg(prediction.unitAXg)}</small>
+      </div>
+      ${forecastBar(event)}
+      <div class="forecast-stats">
+        <span>${escapeHtml(unitB)} ${predictionPercent(prediction.unitBWin)}</span>
+        <span>${state.reveal ? "D" : "hold"} ${predictionPercent(prediction.draw)}</span>
+        <span>${escapeHtml(unitA)} ${predictionPercent(prediction.unitAWin)}</span>
+        ${prediction.modelHit === null ? "" : `<em>${hitLabel}</em>`}
+      </div>
+    </div>
+  `;
+}
+
+function forecastDetailChip(event) {
+  const prediction = event?.prediction;
+  if (!prediction) return "";
+  const hitLabel = prediction.modelHit === true ? "hit" : prediction.modelHit === false ? "miss" : "pending";
+  return `
+    <span class="detail-chip forecast-detail-chip ${predictionStatusClass(prediction)}">
+      <b>${state.reveal ? "prediction" : "forecast"}</b>${escapeHtml(predictionSummary(event))}
+      ${prediction.modelHit === null ? "" : `<em>${hitLabel}</em>`}
+    </span>
+  `;
+}
+
+function forecastTooltipRow(event) {
+  const prediction = event?.prediction;
+  if (!prediction) return "";
+  const unitB = predictionSideName(event, "unitB");
+  const unitA = predictionSideName(event, "unitA");
+  return `
+    <li><strong>${state.reveal ? "odds" : "forecast"}</strong><span>${escapeHtml(predictionSummary(event))}</span><em>xG ${escapeHtml(unitB)} ${predictionXg(prediction.unitBXg)} · ${escapeHtml(unitA)} ${predictionXg(prediction.unitAXg)}</em></li>
   `;
 }
 
@@ -746,6 +843,7 @@ function pipelineCard(event) {
         </div>
       </div>
       ${cardBadges(event)}
+      ${forecastStrip(event)}
       <div>
         <div class="progress-track">
           <span class="progress-fill" style="width:${progress}%"></span>
@@ -805,6 +903,7 @@ function completedDetailStrip(event) {
       <span class="detail-chip"><b>${state.reveal ? "possession" : "control"}</b>${escapeHtml(unitMetricLabel(event, "unitB"))} ${unitBShare} / ${escapeHtml(unitMetricLabel(event, "unitA"))} ${unitAShare}</span>
       <span class="detail-chip"><b>${state.reveal ? "corners" : "restarts"}</b>${restarts}</span>
       <span class="detail-chip"><b>${state.reveal ? "cards" : "flags"}</b>${escapeHtml(flags)}</span>
+      ${forecastDetailChip(event)}
       <span class="detail-chip window-chip"><b>window</b>${escapeHtml(windowText)}</span>
     </div>
   `;
@@ -834,18 +933,21 @@ function runRow(event) {
 
 function queuedRow(event) {
   return `
-    <div class="table-grid queued-row">
-      <span class="status-pill queued">${escapeHtml(statusLabel(event))}</span>
-      <div class="run-title">
-        <span class="mini-code" style="background:${codeColor(event.unitB.code)}">${escapeHtml(event.unitB.code)}</span>
-        <span>${escapeHtml(eventTitle(event))}</span>
-        <span class="mini-code" style="background:${codeColor(event.unitA.code)}">${escapeHtml(event.unitA.code)}</span>
+    <div class="queued-record">
+      <div class="table-grid queued-row">
+        <span class="status-pill queued">${escapeHtml(statusLabel(event))}</span>
+        <div class="run-title">
+          <span class="mini-code" style="background:${codeColor(event.unitB.code)}">${escapeHtml(event.unitB.code)}</span>
+          <span>${escapeHtml(eventTitle(event))}</span>
+          <span class="mini-code" style="background:${codeColor(event.unitA.code)}">${escapeHtml(event.unitA.code)}</span>
+        </div>
+        <span class="build-count">0:0</span>
+        ${cardBadges(event, true)}
+        <span class="duration">${escapeHtml(state.reveal ? event.market : event.region)}</span>
+        <span class="duration">${escapeHtml(formatClock(event.timestamp))}</span>
+        <span class="commit-cell">#${escapeHtml(pseudoHash(event.id))}<small>${escapeHtml(phaseMeta(event))}</small></span>
       </div>
-      <span class="build-count">0:0</span>
-      ${cardBadges(event, true)}
-      <span class="duration">${escapeHtml(state.reveal ? event.market : event.region)}</span>
-      <span class="duration">${escapeHtml(formatClock(event.timestamp))}</span>
-      <span class="commit-cell">#${escapeHtml(pseudoHash(event.id))}<small>${escapeHtml(phaseMeta(event))}</small></span>
+      ${forecastStrip(event, true)}
     </div>
   `;
 }
@@ -970,6 +1072,44 @@ function renderNotes() {
     : `<div class="empty-state">No signal notes are available for the selected stream.</div>`;
 }
 
+function teamServiceName(team) {
+  const code = String(team || "svc")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .slice(0, 3) || "svc";
+  return `${code}-svc`;
+}
+
+function forecastLeaderName(row) {
+  return state.reveal ? row.team || "Unknown" : teamServiceName(row.team);
+}
+
+function forecastLeaderItem(row, index) {
+  const pct = Number.isFinite(row.winPct) ? row.winPct : 0;
+  return `
+    <article class="forecast-leader">
+      <span>${index + 1}</span>
+      <div>
+        <strong>${escapeHtml(forecastLeaderName(row))}</strong>
+        <small>${state.reveal ? `Group ${escapeHtml(row.group || "-")}` : `sector ${escapeHtml(row.group || "-")} · Elo ${Math.round(row.elo || 0)}`}</small>
+        <i><b style="width:${Math.max(2, Math.min(100, pct * 6))}%"></b></i>
+      </div>
+      <em>${Number.isFinite(row.winPct) ? row.winPct.toFixed(1) : "--"}%</em>
+    </article>
+  `;
+}
+
+function renderForecastLeaders() {
+  if (!elements.forecastList) return;
+  const predictionMeta = state.payload?.predictions || {};
+  const rows = predictionMeta.tournamentLeaders || [];
+  elements.forecastTitle.textContent = state.reveal ? "Tournament Odds" : "Forecast Leaders";
+  elements.forecastMeta.textContent = predictionMeta.sources?.tournament || "model";
+  elements.forecastList.innerHTML = rows.length
+    ? rows.slice(0, 6).map(forecastLeaderItem).join("")
+    : `<div class="empty-state">No forecast feed is available.</div>`;
+}
+
 function renderRegions() {
   const events = state.payload?.events || [];
   const counts = new Map();
@@ -1016,6 +1156,7 @@ function showChartTooltip(event) {
       <li><strong>quality</strong><span>${model.quality.target}/${model.quality.shots || 0}</span><em>${model.quality.rate}% on target</em></li>
       <li><strong>control</strong><span>${escapeHtml(model.control.leader)}</span><em>${model.control.skew}% skew</em></li>
       <li><strong>flags</strong><span>${escapeHtml(flagText)}</span><em>Y${model.cards.yellow}/R${model.cards.red}</em></li>
+      ${forecastTooltipRow(laneEvent)}
     </ul>
   `;
   elements.chartTooltip.style.left = `${Math.min(rect.width - 260, Math.max(8, xPos + 14))}px`;
@@ -1034,6 +1175,7 @@ function render() {
   renderTables();
   renderActivity();
   renderNotes();
+  renderForecastLeaders();
   renderRegions();
   renderCharts();
 }
