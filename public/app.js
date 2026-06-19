@@ -23,17 +23,10 @@ const elements = {
   metricLive: document.querySelector("#metricLive"),
   metricTotal: document.querySelector("#metricTotal"),
   metricArtifacts: document.querySelector("#metricArtifacts"),
-  metricSuccess: document.querySelector("#metricSuccess"),
-  metricLatency: document.querySelector("#metricLatency"),
-  metricFiveUnit: document.querySelector("#metricFiveUnit"),
   artifactDelta: document.querySelector("#artifactDelta"),
-  qualityDelta: document.querySelector("#qualityDelta"),
-  latencyDelta: document.querySelector("#latencyDelta"),
   kpiOneLabel: document.querySelector("#kpiOneLabel"),
   kpiTwoLabel: document.querySelector("#kpiTwoLabel"),
   kpiThreeLabel: document.querySelector("#kpiThreeLabel"),
-  kpiFourLabel: document.querySelector("#kpiFourLabel"),
-  kpiFiveLabel: document.querySelector("#kpiFiveLabel"),
   chartTitle: document.querySelector("#chartTitle"),
   chartUnit: document.querySelector("#chartUnit"),
   legendPrimary: document.querySelector("#legendPrimary"),
@@ -43,9 +36,7 @@ const elements = {
   sparkCanvases: [
     document.querySelector("#sparkOne"),
     document.querySelector("#sparkTwo"),
-    document.querySelector("#sparkThree"),
-    document.querySelector("#sparkFour"),
-    document.querySelector("#sparkFive")
+    document.querySelector("#sparkThree")
   ],
   liveTitle: document.querySelector("#liveTitle"),
   liveRunningBadge: document.querySelector("#liveRunningBadge"),
@@ -111,14 +102,6 @@ function outputPair(event) {
     left: event.unitB?.score ?? 0,
     right: event.unitA?.score ?? 0
   };
-}
-
-function metricScopeEvents() {
-  const events = state.payload?.events || [];
-  const live = events.filter((event) => event.state === "live");
-  if (live.length) return live;
-  const completed = events.filter((event) => event.state === "closed");
-  return completed.length ? completed : events;
 }
 
 function signalQuality(events) {
@@ -219,6 +202,11 @@ function predictionPercent(value) {
   return Number.isFinite(value) ? `${Math.round(value * 100)}%` : "--";
 }
 
+function creditAttrs() {
+  const credit = escapeHtml(FORECAST_CREDIT);
+  return `title="${credit}" data-credit="${credit}"`;
+}
+
 function predictionXg(value) {
   return Number.isFinite(value) ? value.toFixed(1) : "--";
 }
@@ -253,10 +241,12 @@ function forecastBar(event) {
   const unitA = Math.max(0, Math.round((prediction.unitAWin || 0) * 100));
 
   return `
-    <div class="forecast-bar" title="${FORECAST_CREDIT}">
-      <i class="forecast-home" style="width:${unitB}%"></i>
-      <i class="forecast-draw" style="width:${draw}%"></i>
-      <i class="forecast-away" style="width:${unitA}%"></i>
+    <div class="forecast-bar-hitbox credit-hover" ${creditAttrs()}>
+      <div class="forecast-bar">
+        <i class="forecast-home" style="width:${unitB}%"></i>
+        <i class="forecast-draw" style="width:${draw}%"></i>
+        <i class="forecast-away" style="width:${unitA}%"></i>
+      </div>
     </div>
   `;
 }
@@ -272,7 +262,7 @@ function forecastStrip(event, compact = false) {
   return `
     <div class="forecast-strip ${compact ? "compact" : ""} ${statusClass}">
       <div class="forecast-head">
-        <span title="${FORECAST_CREDIT}">forecast</span>
+        <span class="credit-hover" ${creditAttrs()}>forecast</span>
         <strong>${escapeHtml(predictionSummary(event))}</strong>
         <small>xG ${escapeHtml(unitB)} ${predictionXg(prediction.unitBXg)} · ${escapeHtml(unitA)} ${predictionXg(prediction.unitAXg)}</small>
       </div>
@@ -293,7 +283,7 @@ function forecastDetailChip(event) {
   const hitLabel = prediction.modelHit === true ? "hit" : prediction.modelHit === false ? "miss" : "pending";
   return `
     <span class="detail-chip forecast-detail-chip ${predictionStatusClass(prediction)}">
-      <b title="${FORECAST_CREDIT}">forecast</b>${escapeHtml(predictionSummary(event))}
+      <b class="credit-hover" ${creditAttrs()}>forecast</b>${escapeHtml(predictionSummary(event))}
       ${prediction.modelHit === null ? "" : `<em>${hitLabel}</em>`}
     </span>
   `;
@@ -305,7 +295,7 @@ function forecastTooltipRow(event) {
   const unitB = predictionSideName(event, "unitB");
   const unitA = predictionSideName(event, "unitA");
   return `
-    <li><strong title="${FORECAST_CREDIT}">forecast</strong><span>${escapeHtml(predictionSummary(event))}</span><em>xG ${escapeHtml(unitB)} ${predictionXg(prediction.unitBXg)} · ${escapeHtml(unitA)} ${predictionXg(prediction.unitAXg)}</em></li>
+    <li><strong class="credit-hover" ${creditAttrs()}>forecast</strong><span>${escapeHtml(predictionSummary(event))}</span><em>xG ${escapeHtml(unitB)} ${predictionXg(prediction.unitBXg)} · ${escapeHtml(unitA)} ${predictionXg(prediction.unitAXg)}</em></li>
   `;
 }
 
@@ -868,6 +858,19 @@ function possessionShare(event, unitKey) {
   return Math.round(event?.splitA || 50);
 }
 
+function controlCell(event) {
+  const unitBShare = possessionShare(event, "unitB");
+  const unitAShare = possessionShare(event, "unitA");
+  const skew = loadSkew([event]);
+  const leader = skew.skew ? `${skew.leader} +${skew.skew}` : "even";
+  return `
+    <span class="control-cell">
+      <b>${unitBShare}/${unitAShare}</b>
+      <small>${escapeHtml(leader)}</small>
+    </span>
+  `;
+}
+
 function completedGoalTimeline(event) {
   if (!(event?.outputEvents || []).length) return "";
 
@@ -925,7 +928,7 @@ function runRow(event) {
         ${cardBadges(event, true)}
         <canvas class="trend" width="120" height="26" data-seed="${escapeHtml(event.id)}"></canvas>
         <span class="duration">${escapeHtml(durationLabel(event))}</span>
-        <span class="commit-cell">#${escapeHtml(pseudoHash(event.id))}<small>${escapeHtml(state.reveal ? event.market : event.region)}</small></span>
+        ${controlCell(event)}
       </div>
       ${completedDetailStrip(event)}
     </div>
@@ -946,7 +949,7 @@ function queuedRow(event) {
         ${cardBadges(event, true)}
         <span class="duration">${escapeHtml(state.reveal ? event.market : event.region)}</span>
         <span class="duration">${escapeHtml(formatClock(event.timestamp))}</span>
-        <span class="commit-cell">#${escapeHtml(pseudoHash(event.id))}<small>${escapeHtml(phaseMeta(event))}</small></span>
+        ${controlCell(event)}
       </div>
       ${forecastStrip(event, true)}
     </div>
@@ -1011,27 +1014,17 @@ function renderHeader() {
   elements.kpiOneLabel.textContent = state.reveal ? "Live matches" : "Active pipelines";
   elements.kpiTwoLabel.textContent = state.reveal ? "Matches today" : "Runs · today";
   elements.kpiThreeLabel.textContent = state.reveal ? "Goals today" : "Artifacts deployed";
-  elements.kpiFourLabel.textContent = state.reveal ? "On target" : "Accuracy";
-  elements.kpiFiveLabel.textContent = state.reveal ? "Possession" : "Control";
   elements.oncallLabel.textContent = state.reveal ? "On-call · P. Tierney (ref)" : "On-call · P. Tierney";
 }
 
 function renderMetrics() {
   const summary = state.payload?.summary || {};
   const events = state.payload?.events || [];
-  const scope = metricScopeEvents();
   const artifacts = events.reduce((sum, event) => sum + (event.unitA?.score || 0) + (event.unitB?.score || 0), 0);
-  const quality = signalQuality(scope);
-  const skew = loadSkew(scope);
   elements.metricLive.textContent = summary.live || 0;
   elements.metricTotal.textContent = summary.total || 0;
   elements.metricArtifacts.textContent = artifacts;
-  elements.metricSuccess.textContent = quality.rate;
-  elements.metricLatency.textContent = skew.skew;
-  elements.metricFiveUnit.textContent = "%";
   elements.artifactDelta.textContent = `+${Math.max(1, Math.round(artifacts / 4))}`;
-  elements.qualityDelta.textContent = `${quality.target}/${quality.shots || 0}`;
-  elements.latencyDelta.textContent = skew.skew ? `${skew.leader} +${skew.skew}` : "even";
 }
 
 function renderCards() {
@@ -1106,7 +1099,8 @@ function renderForecastLeaders() {
   const rows = predictionMeta.tournamentLeaders || [];
   elements.forecastTitle.textContent = "Forecast";
   elements.forecastTitle.title = FORECAST_CREDIT;
-  elements.forecastMeta.textContent = predictionMeta.sources?.tournament || "model";
+  elements.forecastTitle.dataset.credit = FORECAST_CREDIT;
+  elements.forecastMeta.textContent = "model";
   elements.forecastList.innerHTML = rows.length
     ? rows.slice(0, 6).map(forecastLeaderItem).join("")
     : `<div class="empty-state">No forecast feed is available.</div>`;
@@ -1132,7 +1126,7 @@ function renderCharts() {
   const events = state.payload?.events || [];
   const seed = events.reduce((sum, event) => sum + Number(event.id || 0) + (event.signal || 0), 42);
   elements.sparkCanvases.forEach((canvas, index) => {
-    drawSpark(canvas, seed + index * 41, ["#4493f8", "#8b5cf6", "#3fb950", "#3fb950", "#d29922"][index]);
+    drawSpark(canvas, seed + index * 41, ["#4493f8", "#8b5cf6", "#3fb950"][index]);
   });
   drawThroughput(events);
 }

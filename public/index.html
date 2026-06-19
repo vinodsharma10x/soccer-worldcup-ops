@@ -33,6 +33,11 @@
           <button type="button"><span class="nav-icon">⚙</span>Settings</button>
         </nav>
 
+        <section class="regions-panel nav-regions">
+          <h2>Regions</h2>
+          <div id="regionsList"></div>
+        </section>
+
         <div class="system-card">
           <span class="live-dot"></span>
           <div>
@@ -112,16 +117,6 @@
               <strong id="metricArtifacts">0</strong>
               <canvas id="sparkThree" width="190" height="46"></canvas>
             </article>
-            <article class="kpi-card">
-              <div><span id="kpiFourLabel">Accuracy</span><em id="qualityDelta">on-target</em></div>
-              <strong><span id="metricSuccess">99.9</span><small>%</small></strong>
-              <canvas id="sparkFour" width="190" height="46"></canvas>
-            </article>
-            <article class="kpi-card">
-              <div><span id="kpiFiveLabel">Control</span><em id="latencyDelta">even</em></div>
-              <strong><span id="metricLatency">0</span><small id="metricFiveUnit">%</small></strong>
-              <canvas id="sparkFive" width="190" height="46"></canvas>
-            </article>
           </section>
 
           <section class="panel throughput-panel">
@@ -152,7 +147,7 @@
               <span id="recentMeta">0 completed</span>
             </div>
             <div class="table-grid table-head">
-              <span>status</span><span>pipeline</span><span>builds</span><span>cards</span><span>trend</span><span>duration</span><span>commit</span>
+              <span>status</span><span>pipeline</span><span>builds</span><span>cards</span><span>trend</span><span>duration</span><span>control</span>
             </div>
             <div id="recentRuns"></div>
           </section>
@@ -170,7 +165,7 @@
       <aside class="right-rail" aria-label="Forecast and live activity">
         <section class="rail-panel forecast-rail-panel">
           <div class="rail-panel-header">
-            <h2 id="forecastTitle" title="Credits: Ameya Patil">Forecast</h2>
+            <h2 class="credit-hover" id="forecastTitle" title="Credits: Ameya Patil" data-credit="Credits: Ameya Patil">Forecast</h2>
             <span id="forecastMeta">model</span>
           </div>
           <div class="forecast-list" id="forecastList"></div>
@@ -190,11 +185,6 @@
             <span><i></i>streaming</span>
           </div>
           <div class="activity-list" id="activityFeed"></div>
-        </section>
-
-        <section class="regions-panel">
-          <h2>Regions</h2>
-          <div id="regionsList"></div>
         </section>
 
         <div class="oncall-card">
