@@ -1100,7 +1100,7 @@ function renderForecastLeaders() {
   elements.forecastTitle.textContent = "Forecast";
   elements.forecastTitle.title = FORECAST_CREDIT;
   elements.forecastTitle.dataset.credit = FORECAST_CREDIT;
-  elements.forecastMeta.textContent = "model";
+  elements.forecastMeta.textContent = "overall";
   elements.forecastList.innerHTML = rows.length
     ? rows.slice(0, 6).map(forecastLeaderItem).join("")
     : `<div class="empty-state">No forecast feed is available.</div>`;
