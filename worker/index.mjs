@@ -376,12 +376,136 @@ function predictionForEvent(event, predictions) {
   };
 }
 
+const REGULATION_MINUTES = 90;
+const LIVE_GOAL_CAP = 10;
+
+function logFactorial(n) {
+  let sum = 0;
+  for (let i = 2; i <= n; i += 1) sum += Math.log(i);
+  return sum;
+}
+
+function poissonPmf(lambda, k) {
+  if (lambda <= 0) return k === 0 ? 1 : 0;
+  return Math.exp(-lambda + k * Math.log(lambda) - logFactorial(k));
+}
+
+function clampRange(value, lo, hi) {
+  if (!Number.isFinite(value)) return 1;
+  return Math.max(lo, Math.min(hi, value));
+}
+
+// Pre-match scoring rates (lambda) per team: prefer Ameya's expected goals,
+// fall back to an Elo-derived estimate so newer/knockout fixtures still work.
+function baseExpectedGoals(prediction) {
+  const lamB = prediction?.unitBXg;
+  const lamA = prediction?.unitAXg;
+  if (Number.isFinite(lamB) && Number.isFinite(lamA)) return { lamB, lamA };
+
+  const eloB = prediction?.unitBElo;
+  const eloA = prediction?.unitAElo;
+  if (Number.isFinite(eloB) && Number.isFinite(eloA)) {
+    const total = 2.6;
+    const share = 1 / (1 + Math.pow(10, (eloA - eloB) / 400));
+    return { lamB: total * share, lamA: total * (1 - share) };
+  }
+  return null;
+}
+
+// Option B: each red card lowers the offending team's rate and lifts the opponent's.
+function redCardMultipliers(event) {
+  const redB = event?.cards?.unitB?.red || 0;
+  const redA = event?.cards?.unitA?.red || 0;
+  return {
+    adjB: Math.pow(0.78, redB) * Math.pow(1.12, redA),
+    adjA: Math.pow(0.78, redA) * Math.pow(1.12, redB)
+  };
+}
+
+// Option B: nudge remaining rates toward how the match is actually flowing,
+// comparing observed shot quality so far against the pre-match expectation.
+function shotSignalMultipliers(event, minute, lamB, lamA) {
+  const elapsed = Math.min(1, minute / REGULATION_MINUTES);
+  if (elapsed <= 0) return { sigB: 1, sigA: 1 };
+  const observed = (unit) => (unit?.target || 0) * 0.33 + Math.max(0, (unit?.shots || 0) - (unit?.target || 0)) * 0.05;
+  const ratio = (obs, lam) => clampRange(obs / Math.max(0.05, lam * elapsed), 0.6, 1.6);
+  return {
+    sigB: Math.sqrt(ratio(observed(event?.unitB), lamB)),
+    sigA: Math.sqrt(ratio(observed(event?.unitA), lamA))
+  };
+}
+
+// In-play 3-way win probability from current score + remaining-goal Poisson.
+function liveWinProbability(event, prediction) {
+  const base = baseExpectedGoals(prediction);
+  if (!base) return null;
+
+  const closed = event.state === "closed";
+  const live = event.state === "live";
+  const minute = closed ? REGULATION_MINUTES : Math.max(0, Math.min(95, Number(event.minute) || 0));
+  const gB = Number(event.unitB?.score) || 0;
+  const gA = Number(event.unitA?.score) || 0;
+
+  if (closed) {
+    return {
+      pUnitB: gB > gA ? 1 : 0,
+      pDraw: gB === gA ? 1 : 0,
+      pUnitA: gA > gB ? 1 : 0,
+      basis: "final",
+      minute
+    };
+  }
+
+  // Floor remaining time while live so a late match never locks to 100%.
+  const remainingFraction = live
+    ? clampRange((REGULATION_MINUTES - minute) / REGULATION_MINUTES, 0.03, 1)
+    : 1;
+
+  const { adjB, adjA } = redCardMultipliers(event);
+  let lamB = base.lamB;
+  let lamA = base.lamA;
+  if (live && minute >= 15) {
+    const { sigB, sigA } = shotSignalMultipliers(event, minute, lamB, lamA);
+    lamB *= sigB;
+    lamA *= sigA;
+  }
+
+  const remB = Math.max(0, lamB * remainingFraction * adjB);
+  const remA = Math.max(0, lamA * remainingFraction * adjA);
+
+  let pB = 0;
+  let pD = 0;
+  let pA = 0;
+  for (let i = 0; i <= LIVE_GOAL_CAP; i += 1) {
+    const pi = poissonPmf(remB, i);
+    for (let j = 0; j <= LIVE_GOAL_CAP; j += 1) {
+      const p = pi * poissonPmf(remA, j);
+      const finalB = gB + i;
+      const finalA = gA + j;
+      if (finalB > finalA) pB += p;
+      else if (finalB < finalA) pA += p;
+      else pD += p;
+    }
+  }
+
+  const total = pB + pD + pA || 1;
+  return {
+    pUnitB: pB / total,
+    pDraw: pD / total,
+    pUnitA: pA / total,
+    basis: remainingFraction === 1 ? "pre" : "live",
+    minute
+  };
+}
+
 function attachPredictions(events, predictions) {
   let matched = 0;
   const withPredictions = events.map((event) => {
     const prediction = predictionForEvent(event, predictions);
-    if (prediction) matched += 1;
-    return prediction ? { ...event, prediction } : event;
+    if (!prediction) return event;
+    matched += 1;
+    const liveForecast = liveWinProbability(event, prediction);
+    return liveForecast ? { ...event, prediction, liveForecast } : { ...event, prediction };
   });
   return { events: withPredictions, matched };
 }
@@ -537,6 +661,16 @@ function aliasKeys(value) {
   return [...keys];
 }
 
+// Elapsed match minute from ESPN status; prefer the displayed clock ("63'").
+function liveMinuteFromStatus(status) {
+  const display = String(status?.displayClock || status?.type?.shortDetail || "");
+  const shown = display.match(/(\d+)/);
+  if (shown) return Math.min(130, Number(shown[1]));
+  const clock = Number(status?.clock);
+  if (Number.isFinite(clock) && clock > 0) return clock > 130 ? Math.round(clock / 60) : Math.round(clock);
+  return 0;
+}
+
 function summaryAliases(summary) {
   const aliases = new Map();
   const competitors = summary?.header?.competitions?.[0]?.competitors || [];
@@ -639,6 +773,7 @@ function normalizeEvent(event, league) {
   const away = unitFromCompetitor(competitors.find((item) => item.homeAway === "away") || competitors[1] || competitors[0]);
   const type = competition.status?.type || {};
   const state = classifyStatus(type);
+  const minute = liveMinuteFromStatus(competition.status || {});
   const timestamp = event.date || competition.date || competition.startDate;
   const totalShots = home.shots + away.shots;
   const totalTarget = home.target + away.target;
@@ -658,6 +793,7 @@ function normalizeEvent(event, league) {
     state,
     phase: phaseLabel(type),
     statusDetail: type.detail || type.description || "",
+    minute,
     timestamp,
     windowLabel: new Intl.DateTimeFormat("en-US", {
       timeZone: DISPLAY_TIME_ZONE,

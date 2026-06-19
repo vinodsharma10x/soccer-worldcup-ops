@@ -225,24 +225,61 @@ function predictionStatusClass(prediction) {
   return "pending";
 }
 
-function predictionSummary(event) {
+// Pre-match forecast for queued/closed matches; switches to the live
+// in-play model once a match is running so the bar updates each refresh.
+function forecastProbs(event) {
+  if (event?.state === "live" && event?.liveForecast) {
+    const live = event.liveForecast;
+    return {
+      unitB: live.pUnitB,
+      draw: live.pDraw,
+      unitA: live.pUnitA,
+      live: true,
+      minute: live.minute
+    };
+  }
   const prediction = event?.prediction;
-  if (!prediction) return "";
-  const favorite = predictionSideName(event, prediction.favoriteSide, { long: true });
-  const pct = predictionPercent(prediction.favoriteProbability);
-  return `${favorite} ${pct}`;
+  if (!prediction) return null;
+  return {
+    unitB: prediction.unitBWin,
+    draw: prediction.draw,
+    unitA: prediction.unitAWin,
+    live: false,
+    minute: null
+  };
+}
+
+function forecastFavorite(probs) {
+  return [
+    { side: "unitB", probability: probs.unitB },
+    { side: "draw", probability: probs.draw },
+    { side: "unitA", probability: probs.unitA }
+  ].filter((item) => Number.isFinite(item.probability))
+    .sort((a, b) => b.probability - a.probability)[0] || { side: "", probability: null };
+}
+
+function predictionSummary(event) {
+  const probs = forecastProbs(event);
+  if (!probs) return "";
+  const favorite = forecastFavorite(probs);
+  const name = predictionSideName(event, favorite.side, { long: true });
+  const pct = predictionPercent(favorite.probability);
+  if (probs.live && state.reveal && Number.isFinite(probs.minute)) {
+    return `${name} ${pct} · ${probs.minute}'`;
+  }
+  return `${name} ${pct}`;
 }
 
 function forecastBar(event) {
-  const prediction = event?.prediction;
-  if (!prediction) return "";
-  const unitB = Math.max(0, Math.round((prediction.unitBWin || 0) * 100));
-  const draw = Math.max(0, Math.round((prediction.draw || 0) * 100));
-  const unitA = Math.max(0, Math.round((prediction.unitAWin || 0) * 100));
+  const probs = forecastProbs(event);
+  if (!probs) return "";
+  const unitB = Math.max(0, Math.round((probs.unitB || 0) * 100));
+  const draw = Math.max(0, Math.round((probs.draw || 0) * 100));
+  const unitA = Math.max(0, Math.round((probs.unitA || 0) * 100));
 
   return `
     <div class="forecast-bar-hitbox credit-hover" ${creditAttrs()}>
-      <div class="forecast-bar">
+      <div class="forecast-bar${probs.live ? " live" : ""}">
         <i class="forecast-home" style="width:${unitB}%"></i>
         <i class="forecast-draw" style="width:${draw}%"></i>
         <i class="forecast-away" style="width:${unitA}%"></i>
@@ -254,24 +291,28 @@ function forecastBar(event) {
 function forecastStrip(event, compact = false) {
   const prediction = event?.prediction;
   if (!prediction) return "";
-  const statusClass = predictionStatusClass(prediction);
+  const probs = forecastProbs(event) || { unitB: prediction.unitBWin, draw: prediction.draw, unitA: prediction.unitAWin, live: false, minute: null };
+  const statusClass = probs.live ? "live" : predictionStatusClass(prediction);
   const unitB = predictionSideName(event, "unitB");
   const unitA = predictionSideName(event, "unitA");
   const hitLabel = prediction.modelHit === true ? "hit" : prediction.modelHit === false ? "miss" : "pending";
+  const headLabel = probs.live
+    ? `live${state.reveal && Number.isFinite(probs.minute) ? ` ${probs.minute}'` : ""}`
+    : "forecast";
 
   return `
     <div class="forecast-strip ${compact ? "compact" : ""} ${statusClass}">
       <div class="forecast-head">
-        <span class="credit-hover" ${creditAttrs()}>forecast</span>
+        <span class="credit-hover" ${creditAttrs()}>${escapeHtml(headLabel)}</span>
         <strong>${escapeHtml(predictionSummary(event))}</strong>
         <small>xG ${escapeHtml(unitB)} ${predictionXg(prediction.unitBXg)} · ${escapeHtml(unitA)} ${predictionXg(prediction.unitAXg)}</small>
       </div>
       ${forecastBar(event)}
       <div class="forecast-stats">
-        <span>${escapeHtml(unitB)} ${predictionPercent(prediction.unitBWin)}</span>
-        <span>${state.reveal ? "D" : "hold"} ${predictionPercent(prediction.draw)}</span>
-        <span>${escapeHtml(unitA)} ${predictionPercent(prediction.unitAWin)}</span>
-        ${prediction.modelHit === null ? "" : `<em>${hitLabel}</em>`}
+        <span>${escapeHtml(unitB)} ${predictionPercent(probs.unitB)}</span>
+        <span>${state.reveal ? "D" : "hold"} ${predictionPercent(probs.draw)}</span>
+        <span>${escapeHtml(unitA)} ${predictionPercent(probs.unitA)}</span>
+        ${probs.live || prediction.modelHit === null ? "" : `<em>${hitLabel}</em>`}
       </div>
     </div>
   `;
