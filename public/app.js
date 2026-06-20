@@ -235,7 +235,8 @@ function forecastProbs(event) {
       draw: live.pDraw,
       unitA: live.pUnitA,
       live: true,
-      minute: live.minute
+      minute: live.minute,
+      source: live.source
     };
   }
   const prediction = event?.prediction;
@@ -245,7 +246,8 @@ function forecastProbs(event) {
     draw: prediction.draw,
     unitA: prediction.unitAWin,
     live: false,
-    minute: null
+    minute: null,
+    source: null
   };
 }
 
@@ -296,8 +298,9 @@ function forecastStrip(event, compact = false) {
   const unitB = predictionSideName(event, "unitB");
   const unitA = predictionSideName(event, "unitA");
   const hitLabel = prediction.modelHit === true ? "hit" : prediction.modelHit === false ? "miss" : "pending";
+  const sourceTag = probs.source === "market" ? " · mkt" : probs.source === "model" ? " · model" : "";
   const headLabel = probs.live
-    ? `live${state.reveal && Number.isFinite(probs.minute) ? ` ${probs.minute}'` : ""}`
+    ? `live${sourceTag}${state.reveal && Number.isFinite(probs.minute) ? ` ${probs.minute}'` : ""}`
     : "forecast";
 
   return `

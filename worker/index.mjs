@@ -498,13 +498,55 @@ function liveWinProbability(event, prediction) {
   };
 }
 
+// American moneyline (e.g. "+5000", "-800") -> implied probability (with vig).
+function impliedFromAmerican(value) {
+  const odds = Number(String(value ?? "").replace(/[^0-9+\-.]/g, ""));
+  if (!Number.isFinite(odds) || odds === 0) return null;
+  return odds > 0 ? 100 / (odds + 100) : -odds / (-odds + 100);
+}
+
+// De-vigged 3-way market probabilities from an ESPN competition.odds entry.
+function marketProbabilities(competition) {
+  const entries = Array.isArray(competition?.odds) ? competition.odds : [];
+  for (const entry of entries) {
+    const ml = entry?.moneyline;
+    if (!ml) continue;
+    const pick = (side) => impliedFromAmerican(side?.current?.odds ?? side?.close?.odds ?? side?.open?.odds);
+    const home = pick(ml.home);
+    const away = pick(ml.away);
+    const draw = pick(ml.draw);
+    if (![home, away, draw].every(Number.isFinite)) continue;
+    const sum = home + away + draw;
+    if (sum <= 0) continue;
+    return { unitB: home / sum, draw: draw / sum, unitA: away / sum };
+  }
+  return null;
+}
+
+// Prefer market odds for live matches (best-calibrated), fall back to the
+// in-play Poisson model when no live line is available.
+function liveForecastFor(event, prediction) {
+  if (event.state === "live" && event.marketOdds) {
+    return {
+      pUnitB: event.marketOdds.unitB,
+      pDraw: event.marketOdds.draw,
+      pUnitA: event.marketOdds.unitA,
+      basis: "live",
+      source: "market",
+      minute: event.minute
+    };
+  }
+  const model = liveWinProbability(event, prediction);
+  return model ? { ...model, source: "model" } : null;
+}
+
 function attachPredictions(events, predictions) {
   let matched = 0;
   const withPredictions = events.map((event) => {
     const prediction = predictionForEvent(event, predictions);
     if (!prediction) return event;
     matched += 1;
-    const liveForecast = liveWinProbability(event, prediction);
+    const liveForecast = liveForecastFor(event, prediction);
     return liveForecast ? { ...event, prediction, liveForecast } : { ...event, prediction };
   });
   return { events: withPredictions, matched };
@@ -794,6 +836,7 @@ function normalizeEvent(event, league) {
     phase: phaseLabel(type),
     statusDetail: type.detail || type.description || "",
     minute,
+    marketOdds: marketProbabilities(competition),
     timestamp,
     windowLabel: new Intl.DateTimeFormat("en-US", {
       timeZone: DISPLAY_TIME_ZONE,
